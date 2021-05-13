@@ -47,7 +47,7 @@ def test(model, dataloader):
         total_num += img.shape[0]
         total_mse += mse_loss.item()
     avg_mse = total_mse / total_num
-    logging.info("Test MSE: {:.6f}".format(avg_mse))
+    logging.info("Test MSE: {:f}".format(avg_mse))
     return avg_mse
 
 
@@ -135,6 +135,7 @@ if __name__ == "__main__":
     best_mse = 1000
     save_best = ""
     for model_name in models:
+        # tested lr from 0.01 to 0 through cosine, no better
         optim = torch.optim.Adam(models[model_name].parameters())
         model = models[model_name].cuda()
         for epoch in range(epochs):

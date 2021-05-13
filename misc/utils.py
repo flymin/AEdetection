@@ -45,7 +45,7 @@ def save_best(best_prec, prefix, acc, params, epoch, arch, results_dir,
         torch.save(
             params, results_dir +
             '/{}_{}E{}V{:.6f}.pth'.format(arch, prefix, epoch, acc))
-        print(">>>>>> Best saved <<<<<<")
+        logging.info(">>>>>> Best saved <<<<<<")
     else:
-        print(">>>>>> Best not change from {} <<<<<<".format(best_prec))
+        logging.info(">>>>>> Best not change from {} <<<<<<".format(best_prec))
     return best_prec
