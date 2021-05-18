@@ -163,6 +163,16 @@ if __name__ == "__main__":
 
     # start detect
     thrs = detector.get_thrs(test_loader)
+    total_cor, total_pass = 0, 0
+    for img, classId in test_loader:
+        all_pass, _ = detector.detect(img, args.batch_size, thrs=thrs)
+        renorm_img = detector.cls_norm(detector.denorm(img))
+        renorm_img = renorm_img.cuda()
+        y_pred = detector.classifier(renorm_img).argmax(dim=1).cpu()
+        cls_cor = (y_pred == classId)
+        total_cor += cls_cor.sum().item()
+        total_pass += torch.logical_and(cls_cor, all_pass).sum().item()
+    logging.info("(pass & cor) / cor = {}".format(total_pass/total_cor))
     # format of ae_data, total 2400+ samples:
     #   ae_data["x_adv"]: dict(eps[float]:List(batch Tensor data, ...))
     #   ze_data["x_ori"]: List(torch.Tensor, ...)
