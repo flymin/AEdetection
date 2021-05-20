@@ -12,6 +12,7 @@ class Mnist2LayerNet(nn.Module):
         self.conv2 = nn.Conv2d(20, 50, kernel_size=5, stride=1)
         self.fc1 = nn.Linear(4 * 4 * 50, 500)
         self.fc2 = nn.Linear(500, 10)
+        self.logit = True
 
     def forward(self, x):
         x = x.mean(dim=-3, keepdim=True)
@@ -24,7 +25,8 @@ class Mnist2LayerNet(nn.Module):
         x = x.view(-1, 4 * 4 * 50)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
-        x = F.log_softmax(x, dim=1)
+        if not self.logit:
+            x = F.log_softmax(x, dim=1)
         return x
 
 
