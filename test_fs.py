@@ -8,7 +8,7 @@ import torch
 import misc.utils as utils
 from misc.load_dataset import LoadDataset
 from torch.utils.data import DataLoader
-from models.magnet import *
+from models.featureSqueeze import FeatureSqueeze
 from models.resnet import *
 from models.mnist2layer import *
 from models.densenet import densenet169
@@ -28,8 +28,9 @@ def preprocess(ae_data):
                 ae_data["x_adv"][key][idx].mean(dim=-3, keepdim=True)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Test MagNet AE detector")
-    parser.add_argument("--load_dir", type=str)
+    parser = argparse.ArgumentParser(
+        description="Test FeatureSqueeze AE detector")
+    parser.add_argument("--detection", type=str)
     parser.add_argument("--ae_path", type=str)
     parser.add_argument("--dataset", default="cifar10", type=str)
     parser.add_argument("--results_dir", default="./results/ae_test", type=str)
@@ -39,7 +40,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     args.results_dir = os.path.join(
-        args.results_dir, 'MagNet-{}-'.format(args.dataset) +
+        args.results_dir, 'FS-{}-'.format(args.dataset) +
         datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     )
 
@@ -57,97 +58,26 @@ if __name__ == "__main__":
         key = "model"
         cls_norm = [(0.13), (0.31)]
         denorm = [(-1), (2)]
-        model_I_param = {
-            "in_channel": 1,
-            "structure": [3, "average", 3],
-            "activation": "sigmoid",
-            "reg_strength": 1e-9,
-            "v_noise": 0.1
-        }
-        model_II_param = {
-            "in_channel": 1,
-            "structure": [3],
-            "activation": "sigmoid",
-            "reg_strength": 1e-9,
-            "v_noise": 0.1
-        }
-
-        weight_I = glob.glob(
-            os.path.join(args.load_dir, "MNIST_I_MNISTE*"))[0]
-        detector_I = EBDetector(model_I_param, weight_I, p=2)
-        weight_II = glob.glob(
-            os.path.join(args.load_dir, "MNIST_II_MNISTE*"))[0]
-        detector_II = EBDetector(model_II_param, weight_II, p=1)
-        reformer = SimpleReformer(model_I_param, weight_I)
-
-        detector_dict = dict()
-        detector_dict["I"] = detector_I
-        detector_dict["II"] = detector_II
+        
 
     elif args.dataset == "cifar10":
         classifier = densenet169()
         cls_path = "pretrain/densenet169.pt"
         key = None
         cls_norm = [(0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)]
-        model_param = {
-            "in_channel": 3,
-            "structure": [32, "max", 32],
-            "activation": "relu",
-            "reg_strength": 0.025,
-            "v_noise": 0.1
-        }
-
-        weight_I = glob.glob(
-            os.path.join(args.load_dir, "CIFAR_I_cifar10E*"))[0]
-        detector_I = EBDetector(model_param, weight_I, p=1)
-        reformer = SimpleReformer(model_param, weight_I)
-        id_reformer = IdReformer()
-
-        db_detector_I = DBDetector(reformer, id_reformer, classifier, cls_norm,
-                                   denorm, T=10)
-        db_detector_I.load_classifier(cls_path, key)
-        db_detector_II = DBDetector(reformer, id_reformer, classifier, cls_norm,
-                                    denorm, T=40)
-        db_detector_II.load_classifier(cls_path, key)
-
-        detector_dict = dict()
-        detector_dict["I"] = db_detector_I
-        detector_dict["II"] = detector_I
-        detector_dict["III"] = db_detector_II
+        
 
     elif args.dataset == "gtsrb":
         classifier = ResNet18(num_classes=43)
         cls_path = "pretrain/gtsrb_ResNet18_E87_97.85.pth"
         key = "model"
         cls_norm = [(0.3337, 0.3064, 0.3171), (0.2672, 0.2564, 0.2629)]
-        model_param = {
-            "in_channel": 3,
-            "structure": [3],
-            "activation": "sigmoid",
-            "reg_strength": 0.025,
-            "v_noise": 0.1
-        }
-
-        weight_I = glob.glob(
-            os.path.join(args.load_dir, "GTSRB_I_gtsrbE*"))[0]
-        detector_I = EBDetector(model_param, weight_I, p=1)
-        reformer = SimpleReformer(model_param, weight_I)
-        id_reformer = IdReformer()
-
-        db_detector_I = DBDetector(reformer, id_reformer, classifier, cls_norm,
-                                   denorm, T=10)
-        db_detector_I.load_classifier(cls_path, key)
-        db_detector_II = DBDetector(reformer, id_reformer, classifier, cls_norm,
-                                    denorm, T=40)
-        db_detector_II.load_classifier(cls_path, key)
-
-        detector_dict = dict()
-        detector_dict["I"] = db_detector_I
-        detector_dict["II"] = detector_I
-        detector_dict["III"] = db_detector_II
+    else:
+        raise NotImplementedError()
+        
 
     # detector
-    detector = Detector(classifier, detector_dict, reformer, cls_norm, denorm)
+    detector = FeatureSqueeze(classifier, args.detection, cls_norm, denorm)
     detector.load_classifier(cls_path, key)
     detector = detector.cuda()
     detector.eval()
@@ -165,8 +95,10 @@ if __name__ == "__main__":
     thrs = detector.get_thrs(test_loader)
     total_cor, total_pass = 0, 0
     for img, classId in test_loader:
-        all_pass, _ = detector.detect(img, args.batch_size, thrs=thrs)
-        y_pred = detector.classify_reform(img, args.batch_size)
+        all_pass = detector.detect(img, args.batch_size, thrs=thrs)
+        renorm_img = detector.cls_norm(detector.denorm(img))
+        renorm_img = renorm_img.cuda()
+        y_pred = detector.classifier(renorm_img).argmax(dim=1).cpu()
         cls_cor = (y_pred == classId)
         total_cor += cls_cor.sum().item()
         total_pass += torch.logical_and(cls_cor, all_pass).sum().item()
@@ -202,14 +134,12 @@ if __name__ == "__main__":
             x_adv = torch.cat(x_adv, dim=0)
             # normalize as the data loader
             x_adv = x_adv * 2 - 1.
+            
             normal_pred = detector.classify_normal(x_adv, args.batch_size)
-            reform_pred = detector.classify_reform(x_adv, args.batch_size)
-            all_pass, _ = detector.detect(x_adv, args.batch_size, thrs=thrs)
+            all_pass = detector.detect(x_adv, args.batch_size, thrs=thrs)
             should_rej = (normal_pred != y_ori)
-            reform_cor = (reform_pred == y_ori)
             detect_cor = torch.logical_and(cls_cor, torch.logical_or(
-                reform_cor, 
-                torch.logical_or(should_rej == 0, ~all_pass)
+                should_rej == 0, ~all_pass
             ))
             detect_cor = detect_cor.sum().item()
             this_acc = detect_cor / cls_cor.sum().item()
