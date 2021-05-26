@@ -50,6 +50,8 @@ class FeatureSqueeze(nn.Module):
     def _get_distance(self, x1, x2=None):
         """expected range: (0,1)
         """
+        if x1.min() < 0 or x1.max() > 1:
+            logging.warning("[_get_distance] The input data is out of data range")
         normalize_func = self._get_normalizer(self.normalizer_name)
 
         def input_to_normalized_output(x):

@@ -10,15 +10,14 @@ from misc.operator import jsd
 
 
 class DenoisingAutoEncoder(nn.Module):
-    def __init__(self, in_channel: int, structure: List, v_noise=0.0,
-                 activation="relu", model_dir="./defensive_models",
-                 reg_method="L2", reg_strength=0.0, x_min=-1., x_max=1.):
+    def __init__(self, in_channel: int, structure: List, activation="relu",
+                 model_dir="./defensive_models", reg_method="L2",
+                 reg_strength=0.0, x_min=0., x_max=1.):
         super(DenoisingAutoEncoder, self).__init__()
         self.in_channel = in_channel
         self.model_dir = model_dir
-        self.v_noise = v_noise
-        self.x_min = -1.
-        self.x_max = 1.
+        self.x_min = x_min
+        self.x_max = x_max
         self.downwards = nn.ModuleList()
         self.upwards = nn.ModuleList()
         last_c = self.in_channel
@@ -272,9 +271,9 @@ class Detector(nn.Module):
             batch_size ([type]): [description]
 
         Return:
-            pred_y: prediction on reformed data
+            pred_y: prediction on original data
         """
-        return self._classify_helper(img_data, batch_size, self.reformer)
+        return self._classify_helper(img_data, batch_size, lambda x: x)
 
     def classify_reform(self, img_data: torch.Tensor, batch_size: int):
         """Return prediction results of original data samples.
@@ -286,4 +285,4 @@ class Detector(nn.Module):
         Return:
             pred_y: prediction on reformed data
         """
-        return self._classify_helper(img_data, batch_size, lambda x: x)
+        return self._classify_helper(img_data, batch_size, self.reformer)

@@ -14,6 +14,7 @@ from PIL import Image
 import pandas as pd
 import logging
 
+import torch
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from torchvision.datasets import CIFAR10, CIFAR100, MNIST
@@ -57,7 +58,7 @@ class CenterCropLongEdge(object):
 class LoadDataset(Dataset):
     def __init__(
             self, dataset_name, data_path, train, download, resize_size,
-            hdf5_path=None, random_flip=False, norm=True):
+            hdf5_path=None, random_flip=False, norm=True, static_nosie=0):
         super(LoadDataset, self).__init__()
         self.dataset_name = dataset_name
         self.data_path = data_path
@@ -68,6 +69,10 @@ class LoadDataset(Dataset):
         self.random_flip = random_flip
         self.norm_mean = [0.5, 0.5, 0.5]
         self.norm_std = [0.5, 0.5, 0.5]
+        if norm:
+            self.x_min, self.x_max = -1., 1.
+        else:
+            self.x_min, self.x_max = 0., 1.
 
         if self.hdf5_path is None:
             if self.dataset_name in ['cifar10', 'cifar100']:
@@ -103,6 +108,15 @@ class LoadDataset(Dataset):
         logging.info(self.transforms)
 
         self.load_dataset()
+        if static_nosie > 0 and self.train:
+            if self.dataset_name == "MNIST":
+                size = (self.__len__(), 1, *resize_size)
+            else:
+                size = (self.__len__(), 3, *resize_size)
+            self.static_noise = torch.normal(0, static_nosie, size=size)
+            logging.info("[DataLoader] add noise to data.")
+        else:
+            self.static_noise = None
 
     def load_dataset(self):
         if self.dataset_name == 'cifar10':
@@ -202,7 +216,6 @@ class LoadDataset(Dataset):
             label = int(self.csv_data.iloc[index, 1])
             if self.transforms is not None:
                 img = self.transforms(img)
-            return img, label
         elif self.hdf5_path is None:
             img, label = self.data[index]
             img, label = self.transforms(img), int(label)
@@ -214,4 +227,10 @@ class LoadDataset(Dataset):
                 np.transpose(self.data[index], (1, 2, 0)), \
                 int(self.labels[index])
             img = self.transforms(img)
-        return img, label
+        # apply noise
+        if self.static_noise is not None:
+            noisy_img = img + self.static_noise[index]
+            noisy_img = torch.clamp(noisy_img, self.x_min, self.x_max)
+            return noisy_img, img, label
+        else:
+            return img, label

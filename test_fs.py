@@ -27,6 +27,7 @@ def preprocess(ae_data):
             ae_data["x_adv"][key][idx] = \
                 ae_data["x_adv"][key][idx].mean(dim=-3, keepdim=True)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Test FeatureSqueeze AE detector")
@@ -58,14 +59,12 @@ if __name__ == "__main__":
         key = "model"
         cls_norm = [(0.13), (0.31)]
         denorm = [(-1), (2)]
-        
 
     elif args.dataset == "cifar10":
         classifier = densenet169()
         cls_path = "pretrain/densenet169.pt"
         key = None
         cls_norm = [(0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)]
-        
 
     elif args.dataset == "gtsrb":
         classifier = ResNet18(num_classes=43)
@@ -74,7 +73,6 @@ if __name__ == "__main__":
         cls_norm = [(0.3337, 0.3064, 0.3171), (0.2672, 0.2564, 0.2629)]
     else:
         raise NotImplementedError()
-        
 
     # detector
     detector = FeatureSqueeze(classifier, args.detection, cls_norm, denorm)
@@ -93,21 +91,26 @@ if __name__ == "__main__":
 
     # start detect
     thrs = detector.get_thrs(test_loader)
-    total_cor, total_pass = 0, 0
+    total = 0
+    total_cor, total_pass_cor, total_rej_wrong = 0, 0, 0
     for img, classId in test_loader:
         all_pass = detector.detect(img, args.batch_size, thrs=thrs)
         renorm_img = detector.cls_norm(detector.denorm(img))
         renorm_img = renorm_img.cuda()
         y_pred = detector.classifier(renorm_img).argmax(dim=1).cpu()
         cls_cor = (y_pred == classId)
+        total += img.shape[0]
+        total_rej_wrong += torch.logical_and(~cls_cor, ~all_pass).sum().item()
         total_cor += cls_cor.sum().item()
-        total_pass += torch.logical_and(cls_cor, all_pass).sum().item()
-    logging.info("(pass & cor) / cor = {}".format(total_pass/total_cor))
+        total_pass_cor += torch.logical_and(cls_cor, all_pass).sum().item()
+    logging.info("(pass & cor) / cor = {}".format(total_pass_cor / total_cor))
+    logging.info("(pass & cor + rej & wrong) / all = {}".format(
+        (total_pass_cor + total_rej_wrong) / total))
     # format of ae_data, total 2400+ samples:
     #   ae_data["x_adv"]: dict(eps[float]:List(batch Tensor data, ...))
     #   ze_data["x_ori"]: List(torch.Tensor, ...)
     #   ae_data["y_ori"]: List(torch.Tensor, ...)
-    # x_adv in range of (0,1), without normalization
+    # x_adv and x_ori in range of (0,1), without normalization
     for file in args.ae_path.split(";"):
         ae_data = torch.load(file)
         x_adv_all = ae_data["x_adv"]
@@ -119,22 +122,23 @@ if __name__ == "__main__":
         # test classifier on clean sample
         clean_pred = []
         for img, classId in zip(x_ori, y_ori):
-            renorm_img = detector.cls_norm(detector.denorm(img))
-            renorm_img = renorm_img.cuda()
-            y_pred = detector.classifier(renorm_img).argmax(dim=1).cpu()
+            # here we expect data in range [0, 1]
+            img = img.cuda()
+            y_pred = detector.inference_classifier(img).argmax(dim=1).cpu()
             clean_pred.append(y_pred)
         clean_pred = torch.cat(clean_pred)
         # concat each batch to one
         y_ori = torch.cat(y_ori, dim=0)
         cls_cor = (clean_pred == y_ori)
+        logging.info("cls acc: {}".format(cls_cor.sum().item() / len(cls_cor)))
         all_acc = []
         for eps in x_adv_all:
             x_adv = x_adv_all[eps]
             # concat each batch to one
             x_adv = torch.cat(x_adv, dim=0)
-            # normalize as the data loader
+            # normalize as the data loader, expect data in range [-1, 1]
             x_adv = x_adv * 2 - 1.
-            
+
             normal_pred = detector.classify_normal(x_adv, args.batch_size)
             all_pass = detector.detect(x_adv, args.batch_size, thrs=thrs)
             should_rej = (normal_pred != y_ori)

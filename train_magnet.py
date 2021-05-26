@@ -14,11 +14,9 @@ def train(model, dataloader, optim, epoch):
     criterion = nn.MSELoss()
     model.train()
     train_iter, total_loss, total_mse, total_num = 0, 0, 0, 0
-    for img, _ in dataloader:
+    for noisy_img, img, _ in dataloader:
         img = img.cuda()
-        noise = torch.normal(0, model.v_noise, size=img.shape,
-                             device=img.device)
-        noisy_img = torch.clamp(img + noise, -1, 1)
+        noisy_img = noisy_img.cuda()
         out_img, reg_loss = model(noisy_img)
         mse_loss = criterion(out_img, img)
         loss = reg_loss + mse_loss
@@ -26,8 +24,8 @@ def train(model, dataloader, optim, epoch):
         loss.backward()
         optim.step()
         total_num += img.shape[0]
-        total_mse += mse_loss.item()
-        total_loss += loss.item()
+        total_mse += mse_loss.item() * img.shape[0]
+        total_loss += loss.item() * img.shape[0]
         if train_iter % 10 == 0:
             train_lr = optim.param_groups[0]['lr']
             logging.info("E:{}, lr:{:.6f}, MSE:{:.6f}, L:{:.6f}".format(
@@ -45,7 +43,7 @@ def test(model, dataloader):
         mse_loss = criterion(out_img, img)
 
         total_num += img.shape[0]
-        total_mse += mse_loss.item()
+        total_mse += mse_loss.item() * img.shape[0]
     avg_mse = total_mse / total_num
     logging.info("Test MSE: {:f}".format(avg_mse))
     return avg_mse
@@ -79,47 +77,54 @@ if __name__ == "__main__":
         epochs = 100
         models = {
             "MNIST_I": DenoisingAutoEncoder(in_channel, combination_I,
-                                            v_noise=0.1, activation=activation,
+                                            activation=activation,
                                             reg_strength=reg_strength),
             "MNIST_II": DenoisingAutoEncoder(in_channel, combination_II,
-                                             v_noise=0.1, activation=activation,
+                                             activation=activation,
                                              reg_strength=reg_strength)
         }
     elif args.dataset == "cifar10":
         in_channel = 3
-        combination_I = [32, "max", 32]
-        activation = "relu"
-        reg_strength = 0.025
+        combination_I = [3]
+        activation = "sigmoid"
+        reg_strength = 1e-9
         epochs = 400
+        reg_method = "L2"
         # According to the original paper, the detector for CIFAR
         # is the same as the detector II for MNIST
         models = {
             "CIFAR_I": DenoisingAutoEncoder(in_channel, combination_I,
-                                            v_noise=0.1, activation=activation,
-                                            reg_strength=reg_strength)
+                                            activation=activation,
+                                            reg_strength=reg_strength,
+                                            reg_method=reg_method)
         }
     elif args.dataset == "gtsrb":
         in_channel = 3
         combination_I = [3]
         combination_II = [3, "average", 3]
         activation = "sigmoid"
-        reg_strength = 0.025
+        reg_strength = 1e-9
         epochs = 400
+        reg_method = "L2"
         models = {
             "GTSRB_I": DenoisingAutoEncoder(in_channel, combination_I,
-                                            v_noise=0.1, activation=activation,
-                                            reg_strength=reg_strength),
+                                            activation=activation,
+                                            reg_strength=reg_strength,
+                                            reg_method=reg_method),
             "GTSRB_II": DenoisingAutoEncoder(in_channel, combination_II,
-                                             v_noise=0.1, activation=activation,
-                                             reg_strength=reg_strength)
+                                             activation=activation,
+                                             reg_strength=reg_strength,
+                                             reg_method=reg_method)
         }
     else:
         raise NotImplementedError()
 
-    norm = True
+    norm = False
+    v_noise = 0.1
     train_data = LoadDataset(
         args.dataset, args.data_path, train=True, download=False,
-        resize_size=args.img_size, hdf5_path=None, random_flip=True, norm=norm)
+        resize_size=args.img_size, hdf5_path=None, random_flip=True, norm=norm,
+        static_nosie=v_noise)
     test_data = LoadDataset(
         args.dataset, args.data_path, train=False, download=False,
         resize_size=args.img_size, hdf5_path=None, random_flip=False, norm=norm)
@@ -132,12 +137,11 @@ if __name__ == "__main__":
         pin_memory=True)
     logging.info(models)
 
-    best_mse = 1000
-    save_best = ""
     for model_name in models:
         # tested lr from 0.01 to 0 through cosine, no better
         optim = torch.optim.Adam(models[model_name].parameters())
         model = models[model_name].cuda()
+        best_mse = 1000
         for epoch in range(epochs):
             train(model, train_loader, optim, epoch)
             avg_mse = test(model, test_loader)

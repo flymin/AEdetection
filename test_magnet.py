@@ -1,3 +1,7 @@
+import sys
+sys.path.append(".")
+sys.path.append("lib")
+
 import os
 from datetime import datetime
 import argparse
@@ -12,6 +16,7 @@ from models.magnet import *
 from models.resnet import *
 from models.mnist2layer import *
 from models.densenet import densenet169
+from lib.robustbench.utils import load_model
 np.set_printoptions(precision=4, suppress=True, linewidth=120)
 
 
@@ -27,10 +32,12 @@ def preprocess(ae_data):
             ae_data["x_adv"][key][idx] = \
                 ae_data["x_adv"][key][idx].mean(dim=-3, keepdim=True)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test MagNet AE detector")
     parser.add_argument("--load_dir", type=str)
     parser.add_argument("--ae_path", type=str)
+    parser.add_argument("--model", default="", type=str)
     parser.add_argument("--dataset", default="cifar10", type=str)
     parser.add_argument("--results_dir", default="./results/ae_test", type=str)
     parser.add_argument("--data_path", default="./dataset", type=str)
@@ -44,19 +51,24 @@ if __name__ == "__main__":
     )
 
     # log
+    if args.model != "":
+        assert args.dataset == "cifar10"
+        run_name = "{}_{}".format(args.dataset, args.model)
+    else:
+        run_name = args.dataset
     if not os.path.exists(args.results_dir):
         os.makedirs(args.results_dir)
-    utils.make_logger(args.dataset, args.results_dir)
+    utils.make_logger(run_name, args.results_dir)
     logging.info(args)
 
     # define model according to dataset
-    denorm = [(-1, -1, -1), (2, 2, 2)]
+    denorm = [(0., 0., 0.), (1., 1., 1.)]
     if args.dataset == "MNIST":
         classifier = Mnist2LayerNet()
         cls_path = "pretrain/MNIST_Net.pth"
         key = "model"
         cls_norm = [(0.13), (0.31)]
-        denorm = [(-1), (2)]
+        denorm = [(0.), (1.)]
         model_I_param = {
             "in_channel": 1,
             "structure": [3, "average", 3],
@@ -85,16 +97,22 @@ if __name__ == "__main__":
         detector_dict["II"] = detector_II
 
     elif args.dataset == "cifar10":
-        classifier = densenet169()
-        cls_path = "pretrain/densenet169.pt"
-        key = None
-        cls_norm = [(0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)]
+        if args.model == "":
+            classifier = densenet169()
+            cls_path = "pretrain/densenet169.pt"
+            key = None
+            cls_norm = [(0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)]
+        else:
+            classifier = load_model(model_name=args.model, dataset=args.dataset,
+                                    threat_model='Linf')
+            cls_norm = [(0., 0., 0.), (1., 1., 1.)]
         model_param = {
             "in_channel": 3,
-            "structure": [32, "max", 32],
-            "activation": "relu",
+            "structure": [3],
+            "activation": "sigmoid",
             "reg_strength": 0.025,
-            "v_noise": 0.1
+            "v_noise": 0.1,
+            "reg_method": "noise"
         }
 
         weight_I = glob.glob(
@@ -156,26 +174,33 @@ if __name__ == "__main__":
     # test_data
     test_data = LoadDataset(
         args.dataset, args.data_path, train=False, download=False,
-        resize_size=args.img_size, hdf5_path=None, random_flip=False, norm=True)
+        resize_size=args.img_size, hdf5_path=None, random_flip=False, norm=False)
     test_loader = DataLoader(
         test_data, batch_size=args.batch_size, shuffle=False, num_workers=4,
         pin_memory=True)
 
     # start detect
     thrs = detector.get_thrs(test_loader)
-    total_cor, total_pass = 0, 0
+    total = 0
+    total_cor, total_pass_cor, total_rej_wrong = 0, 0, 0
     for img, classId in test_loader:
         all_pass, _ = detector.detect(img, args.batch_size, thrs=thrs)
+        # here we expect data in range [0, 1]
         y_pred = detector.classify_reform(img, args.batch_size)
         cls_cor = (y_pred == classId)
+        total += img.shape[0]
+        total_rej_wrong += torch.logical_and(~cls_cor, ~all_pass).sum().item()
         total_cor += cls_cor.sum().item()
-        total_pass += torch.logical_and(cls_cor, all_pass).sum().item()
-    logging.info("(pass & cor) / cor = {}".format(total_pass/total_cor))
+        total_pass_cor += torch.logical_and(cls_cor, all_pass).sum().item()
+    print(total_pass_cor, total_rej_wrong, total_cor, total)
+    logging.info("(pass & cor) / cor = {}".format(total_pass_cor / total_cor))
+    logging.info("(pass & cor + rej & wrong) / all = {}".format(
+        (total_pass_cor + total_rej_wrong) / total))
     # format of ae_data, total 2400+ samples:
     #   ae_data["x_adv"]: dict(eps[float]:List(batch Tensor data, ...))
     #   ze_data["x_ori"]: List(torch.Tensor, ...)
     #   ae_data["y_ori"]: List(torch.Tensor, ...)
-    # x_adv in range of (0,1), without normalization
+    # x_adv and x_ori in range of (0,1), without normalization
     for file in args.ae_path.split(";"):
         ae_data = torch.load(file)
         x_adv_all = ae_data["x_adv"]
@@ -187,7 +212,8 @@ if __name__ == "__main__":
         # test classifier on clean sample
         clean_pred = []
         for img, classId in zip(x_ori, y_ori):
-            renorm_img = detector.cls_norm(detector.denorm(img))
+            # here we expect data in range [0, 1]
+            renorm_img = detector.cls_norm(img)
             renorm_img = renorm_img.cuda()
             y_pred = detector.classifier(renorm_img).argmax(dim=1).cpu()
             clean_pred.append(y_pred)
@@ -195,20 +221,19 @@ if __name__ == "__main__":
         # concat each batch to one
         y_ori = torch.cat(y_ori, dim=0)
         cls_cor = (clean_pred == y_ori)
+        logging.info("cls acc: {}".format(cls_cor.sum().item() / len(cls_cor)))
         all_acc = []
         for eps in x_adv_all:
             x_adv = x_adv_all[eps]
             # concat each batch to one
             x_adv = torch.cat(x_adv, dim=0)
-            # normalize as the data loader
-            x_adv = x_adv * 2 - 1.
             normal_pred = detector.classify_normal(x_adv, args.batch_size)
             reform_pred = detector.classify_reform(x_adv, args.batch_size)
             all_pass, _ = detector.detect(x_adv, args.batch_size, thrs=thrs)
             should_rej = (normal_pred != y_ori)
             reform_cor = (reform_pred == y_ori)
             detect_cor = torch.logical_and(cls_cor, torch.logical_or(
-                reform_cor, 
+                reform_cor,
                 torch.logical_or(should_rej == 0, ~all_pass)
             ))
             detect_cor = detect_cor.sum().item()

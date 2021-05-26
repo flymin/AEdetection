@@ -17,7 +17,7 @@ class GaussianNoise(nn.Module):
 
     def forward(self, x):
         if self.training:
-            noise = torch.normal(0., self.stddev, x.size())
+            noise = torch.normal(0., self.stddev, x.size()).to(x.device)
             return noise + x
         else:
             return x
@@ -43,4 +43,10 @@ class Conv2dActReg(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         x = self.act(x)
-        return x, self.reg(x)
+        if self.training and isinstance(self.reg, GaussianNoise):
+            x = x + self.reg(x)
+            return x, 0
+        elif isinstance(self.reg, GaussianNoise):
+            return x, 0
+        else:
+            return x, self.reg(x)

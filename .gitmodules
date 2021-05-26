@@ -1,0 +1,6 @@
+[submodule "lib/RobustBench"]
+	path = lib/RobustBench
+	url = https://github.com/flymin/robustbench.git
+[submodule "lib/auto-attack"]
+	path = lib/auto-attack
+	url = https://github.com/flymin/auto-attack
