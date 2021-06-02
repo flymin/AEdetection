@@ -91,20 +91,27 @@ if __name__ == "__main__":
 
     # start detect
     thrs = detector.get_thrs(test_loader)
-    total = 0
-    total_cor, total_pass_cor, total_rej_wrong = 0, 0, 0
+    total, fp = 0, 0
+    fp_tn, total_pass_cor, total_rej_wrong = 0, 0, 0
     for img, classId in test_loader:
         all_pass = detector.detect(img, args.batch_size, thrs=thrs)
         renorm_img = detector.cls_norm(detector.denorm(img))
         renorm_img = renorm_img.cuda()
         y_pred = detector.classifier(renorm_img).argmax(dim=1).cpu()
         cls_cor = (y_pred == classId)
+        # FPR
+        fp += torch.logical_and(cls_cor, all_pass == 0).sum().item()
+        fp_tn += cls_cor.sum().item()
+        # robust acc
         total += img.shape[0]
-        total_rej_wrong += torch.logical_and(~cls_cor, ~all_pass).sum().item()
-        total_cor += cls_cor.sum().item()
+        total_rej_wrong += torch.logical_and(
+            cls_cor == 0, all_pass == 0).sum().item()
         total_pass_cor += torch.logical_and(cls_cor, all_pass).sum().item()
-    logging.info("(pass & cor) / cor = {}".format(total_pass_cor / total_cor))
-    logging.info("(pass & cor + rej & wrong) / all = {}".format(
+    print(total_pass_cor, total_rej_wrong, fp, fp_tn, total)
+    # FPR
+    logging.info("FPR: (rej & cor) / cor = {}".format(fp / fp_tn))
+    # robust acc
+    logging.info("clean acc: (pass & cor + rej & wrong) / all = {}".format(
         (total_pass_cor + total_rej_wrong) / total))
     # format of ae_data, total 2400+ samples:
     #   ae_data["x_adv"]: dict(eps[float]:List(batch Tensor data, ...))
@@ -142,13 +149,22 @@ if __name__ == "__main__":
             normal_pred = detector.classify_normal(x_adv, args.batch_size)
             all_pass = detector.detect(x_adv, args.batch_size, thrs=thrs)
             should_rej = (normal_pred != y_ori)
-            detect_cor = torch.logical_and(cls_cor, torch.logical_or(
-                should_rej == 0, ~all_pass
-            ))
-            detect_cor = detect_cor.sum().item()
-            this_acc = detect_cor / cls_cor.sum().item()
+            # attack suss rate: robust acc is
+            # 1 - #(pass and incorrect samples)/#(all perturbed samples)
+            # here is the #(pass and incorrect samples)
+            incor_pass = torch.logical_and(should_rej, all_pass.cpu())
+            rob_acc = 1. - torch.mean(incor_pass.float()).item()
+
+            # TPR: acc for (attack suss and reject) / attack suss
+            tp_fn = torch.logical_and(cls_cor, should_rej)
+            tp = torch.logical_and(
+                torch.logical_and(cls_cor, should_rej),
+                all_pass.cpu() == 0
+            )
+            TPR = (tp.sum() / tp_fn.sum()).item()
 
             logging.info("on AE: {} eps={}".format(file, eps))
-            logging.info("acc detection: {:.4f}".format(this_acc))
-            all_acc.append(this_acc)
+            logging.info("robust acc: {:.4f}".format(rob_acc))
+            logging.info("TPR: {:.4f}".format(TPR))
+            all_acc.append((rob_acc, TPR))
         logging.info("Results: {}".format(np.array(all_acc)))

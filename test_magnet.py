@@ -33,6 +33,64 @@ def preprocess(ae_data):
                 ae_data["x_adv"][key][idx].mean(dim=-3, keepdim=True)
 
 
+def test_whitebox(args, path, detector, thrs):
+    # format of ae_data, total 2400+ samples:
+    #   ae_data["x_adv"]: dict(eps[float]:List(batch Tensor data, ...))
+    #   ae_data["x_ori"]: List(torch.Tensor, ...)
+    #   ae_data["y_ori"]: List(torch.Tensor, ...)
+    # x_adv and x_ori in range of (0,1), without normalization
+    for file in path.split(";"):
+        ae_data = torch.load(file)
+        x_adv_all = ae_data["x_adv"]
+        y_ori = ae_data["y_ori"]
+        x_ori = ae_data["x_ori"]
+        if args.dataset == "MNIST":
+            # for Mnist, the data is saved with three channel
+            ae_data = preprocess(ae_data)
+        # test classifier on clean sample
+        clean_pred = []
+        for img, _ in zip(x_ori, y_ori):
+            # here we expect data in range [0, 1]
+            renorm_img = detector.cls_norm(img)
+            renorm_img = renorm_img.cuda()
+            y_pred = detector.classifier(renorm_img).argmax(dim=1).cpu()
+            clean_pred.append(y_pred)
+        clean_pred = torch.cat(clean_pred)
+        # concat each batch to one
+        y_ori = torch.cat(y_ori, dim=0)
+        cls_cor = (clean_pred == y_ori)
+        logging.info("cls acc: {}".format(cls_cor.sum().item() / len(cls_cor)))
+        all_acc = []
+        for eps in x_adv_all:
+            x_adv = x_adv_all[eps]
+            # concat each batch to one
+            x_adv = torch.cat(x_adv, dim=0)
+            normal_pred = detector.classify_normal(x_adv, args.batch_size)
+            reform_pred = detector.classify_reform(x_adv, args.batch_size)
+            all_pass, _ = detector.detect(x_adv, args.batch_size, thrs=thrs)
+            should_rej = (normal_pred != y_ori)
+            reform_cor = (reform_pred == y_ori)
+            # attack suss rate: robust acc is
+            # 1 - #(pass and incorrect samples)/#(all perturbed samples)
+            # here is the #(pass and incorrect samples)
+            incor_pass = torch.logical_and(reform_cor == 0, all_pass.cpu())
+            rob_acc = 1. - torch.mean(incor_pass.float()).item()
+
+            # TPR: acc for (attack suss and reject) / attack suss
+            tp_fn = torch.logical_and(cls_cor, should_rej)
+            tp = torch.logical_and(
+                torch.logical_and(cls_cor, should_rej),
+                torch.logical_or(reform_cor, all_pass.cpu() == 0)
+            )
+            TPR = (tp.sum() / tp_fn.sum()).item()
+
+            logging.info("on AE: {} eps={}".format(file, eps))
+            logging.info("robust acc: {:.4f}".format(rob_acc))
+            logging.info("TPR: {:.4f}".format(TPR))
+            all_acc.append((rob_acc, TPR))
+        logging.info("Results: {}".format(np.array(all_acc)))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test MagNet AE detector")
     parser.add_argument("--load_dir", type=str)
@@ -73,15 +131,13 @@ if __name__ == "__main__":
             "in_channel": 1,
             "structure": [3, "average", 3],
             "activation": "sigmoid",
-            "reg_strength": 1e-9,
-            "v_noise": 0.1
+            "reg_strength": 1e-9
         }
         model_II_param = {
             "in_channel": 1,
             "structure": [3],
             "activation": "sigmoid",
-            "reg_strength": 1e-9,
-            "v_noise": 0.1
+            "reg_strength": 1e-9
         }
 
         weight_I = glob.glob(
@@ -110,9 +166,8 @@ if __name__ == "__main__":
             "in_channel": 3,
             "structure": [3],
             "activation": "sigmoid",
-            "reg_strength": 0.025,
-            "v_noise": 0.1,
-            "reg_method": "noise"
+            "reg_strength": 1e-9,
+            "reg_method": "L2"
         }
 
         weight_I = glob.glob(
@@ -142,8 +197,7 @@ if __name__ == "__main__":
             "in_channel": 3,
             "structure": [3],
             "activation": "sigmoid",
-            "reg_strength": 0.025,
-            "v_noise": 0.1
+            "reg_strength": 0.025
         }
 
         weight_I = glob.glob(
@@ -174,72 +228,47 @@ if __name__ == "__main__":
     # test_data
     test_data = LoadDataset(
         args.dataset, args.data_path, train=False, download=False,
-        resize_size=args.img_size, hdf5_path=None, random_flip=False, norm=False)
+        resize_size=args.img_size, hdf5_path=None, random_flip=False,
+        norm=False)
     test_loader = DataLoader(
         test_data, batch_size=args.batch_size, shuffle=False, num_workers=4,
         pin_memory=True)
 
     # start detect
     thrs = detector.get_thrs(test_loader)
-    total = 0
-    total_cor, total_pass_cor, total_rej_wrong = 0, 0, 0
+    total, fp = 0, 0
+    fp_tn, total_pass_cor, total_rej_wrong = 0, 0, 0
     for img, classId in test_loader:
         all_pass, _ = detector.detect(img, args.batch_size, thrs=thrs)
         # here we expect data in range [0, 1]
+        normal_pred = detector.classify_normal(img, args.batch_size)
         y_pred = detector.classify_reform(img, args.batch_size)
-        cls_cor = (y_pred == classId)
+        reform_cor = (y_pred == classId)
+        cls_cor = (normal_pred == classId)
+        # FPR
+        fp += torch.logical_and(
+            cls_cor,
+            torch.logical_or(
+                all_pass == 0,
+                torch.logical_and(all_pass, reform_cor == 0)
+            )).sum().item()
+        fp_tn += cls_cor.sum().item()
+        # robust acc
         total += img.shape[0]
-        total_rej_wrong += torch.logical_and(~cls_cor, ~all_pass).sum().item()
-        total_cor += cls_cor.sum().item()
-        total_pass_cor += torch.logical_and(cls_cor, all_pass).sum().item()
-    print(total_pass_cor, total_rej_wrong, total_cor, total)
-    logging.info("(pass & cor) / cor = {}".format(total_pass_cor / total_cor))
-    logging.info("(pass & cor + rej & wrong) / all = {}".format(
+        total_rej_wrong += torch.logical_and(
+            cls_cor == 0,
+            torch.logical_or(reform_cor, all_pass == 0)).sum().item()
+        total_pass_cor += torch.logical_and(
+            cls_cor == 1,
+            torch.logical_and(reform_cor, all_pass)).sum().item()
+    print(total_pass_cor, total_rej_wrong, fp, fp_tn, total)
+    # FPR
+    logging.info("FPR: (rej & cor) / cor = {}".format(fp / fp_tn))
+    # robust acc
+    logging.info("clean acc: (pass & cor + rej & wrong) / all = {}".format(
         (total_pass_cor + total_rej_wrong) / total))
-    # format of ae_data, total 2400+ samples:
-    #   ae_data["x_adv"]: dict(eps[float]:List(batch Tensor data, ...))
-    #   ze_data["x_ori"]: List(torch.Tensor, ...)
-    #   ae_data["y_ori"]: List(torch.Tensor, ...)
-    # x_adv and x_ori in range of (0,1), without normalization
-    for file in args.ae_path.split(";"):
-        ae_data = torch.load(file)
-        x_adv_all = ae_data["x_adv"]
-        y_ori = ae_data["y_ori"]
-        x_ori = ae_data["x_ori"]
-        if args.dataset == "MNIST":
-            # for Mnist, the data is saved with three channel
-            ae_data = preprocess(ae_data)
-        # test classifier on clean sample
-        clean_pred = []
-        for img, classId in zip(x_ori, y_ori):
-            # here we expect data in range [0, 1]
-            renorm_img = detector.cls_norm(img)
-            renorm_img = renorm_img.cuda()
-            y_pred = detector.classifier(renorm_img).argmax(dim=1).cpu()
-            clean_pred.append(y_pred)
-        clean_pred = torch.cat(clean_pred)
-        # concat each batch to one
-        y_ori = torch.cat(y_ori, dim=0)
-        cls_cor = (clean_pred == y_ori)
-        logging.info("cls acc: {}".format(cls_cor.sum().item() / len(cls_cor)))
-        all_acc = []
-        for eps in x_adv_all:
-            x_adv = x_adv_all[eps]
-            # concat each batch to one
-            x_adv = torch.cat(x_adv, dim=0)
-            normal_pred = detector.classify_normal(x_adv, args.batch_size)
-            reform_pred = detector.classify_reform(x_adv, args.batch_size)
-            all_pass, _ = detector.detect(x_adv, args.batch_size, thrs=thrs)
-            should_rej = (normal_pred != y_ori)
-            reform_cor = (reform_pred == y_ori)
-            detect_cor = torch.logical_and(cls_cor, torch.logical_or(
-                reform_cor,
-                torch.logical_or(should_rej == 0, ~all_pass)
-            ))
-            detect_cor = detect_cor.sum().item()
-            this_acc = detect_cor / cls_cor.sum().item()
 
-            logging.info("on AE: {} eps={}".format(file, eps))
-            logging.info("acc detection: {:.4f}".format(this_acc))
-            all_acc.append(this_acc)
-        logging.info("Results: {}".format(np.array(all_acc)))
+    if args.model != "":
+        pass
+    else:
+        test_whitebox(args, args.ae_path, detector, thrs)
