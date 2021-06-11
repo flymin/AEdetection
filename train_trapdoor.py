@@ -71,11 +71,9 @@ if __name__ == "__main__":
     parser.add_argument("--model", default="", type=str)
     parser.add_argument("--results_dir", default="./results", type=str)
     parser.add_argument("--data_path", default="./dataset", type=str)
-    parser.add_argument('--inject-ratio', type=float,
+    parser.add_argument('--inject_ratio', type=float,
                         help='injection ratio', default=0.5)
-    parser.add_argument('--mask_ratio', type=float, help='', default=0.1)
     parser.add_argument('--num_cluster', type=int, help='', default=7)
-    parser.add_argument('--pattern_size', type=int, help='', default=3)
     parser.add_argument("--batch_size", default=256, type=int)
     parser.add_argument('--seed', type=int, help='', default=0)
 
@@ -124,22 +122,23 @@ if __name__ == "__main__":
         # trapdoor params
         mask_ratio = 0.03
         pattern_size = 3
-        epochs = 100
+        epochs = 200
     else:
         raise NotImplementedError()
     model = CoreModel(args.dataset, classifier, cls_norm)
+    logging.info("{}".format(model))
     # load clean trained
     model.load_classifier(cls_path, key)
 
     target_ls = list(range(model.num_classes))
     pattern_dict = craft_trapdoors(
         target_ls, model.img_shape, args.num_cluster,
-        pattern_size=args.pattern_size, mask_ratio=args.mask_ratio)
+        pattern_size=pattern_size, mask_ratio=mask_ratio)
 
     norm = False
     train_data = LoadDataset(
         args.dataset, args.data_path, train=True, download=False,
-        resize_size=(32, 32), hdf5_path=None, random_flip=True, norm=norm)
+        resize_size=(32, 32), hdf5_path=None, random_flip=False, norm=norm)
     test_data = LoadDataset(
         args.dataset, args.data_path, train=False, download=False,
         resize_size=(32, 32), hdf5_path=None, random_flip=False, norm=norm)

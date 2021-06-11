@@ -79,7 +79,7 @@ class LoadDataset(Dataset):
             elif self.dataset_name in ["tiny_imagenet", 'MNIST']:
                 self.transforms = [transforms.Resize(self.resize_size)]
             elif self.dataset_name in ['imagenet', 'gtsrb', 'custom']:
-                if train:
+                if train and random_flip:
                     self.transforms = [
                         RandomCropLongEdge(),
                         transforms.Resize(self.resize_size)]

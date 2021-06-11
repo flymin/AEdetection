@@ -15,25 +15,27 @@ class CoreModel(nn.Module):
         if dataset == "cifar10":
             num_classes = 10
             img_shape = (3, 32, 32)
-            per_label_ratio = 0.1
             expect_acc = 0.8  # change this from 0.75 to 0.8
         elif dataset == "gtsrb":
             num_classes = 43
             img_shape = (3, 32, 32)
-            per_label_ratio = 0.1
             expect_acc = 0.9
         elif dataset == "MNIST":
             num_classes = 10
             img_shape = (1, 32, 32)
-            per_label_ratio = 0.1
             expect_acc = 0.98
         else:
             raise Exception("Not implement")
 
         self.num_classes = num_classes
         self.img_shape = img_shape
-        self.per_label_ratio = per_label_ratio
+        self.per_label_ratio = 0.1
         self.expect_acc = expect_acc
+
+    def __str__(self) -> str:
+        return "[CoreModel {}] with per_label_ratio={}, expect_acc={}".format(
+            self.dataset, self.per_label_ratio, self.expect_acc
+        )
 
     def inference_logits(self, data):
         norm_x = self.cls_norm(data)
@@ -94,6 +96,10 @@ def craft_trapdoors(target_ls, image_shape, num_clusters, pattern_per_label=1,
     Returns:
         total_ls: patterns to each label
     """
+    logging.info(
+        "[Craft] num_clusters={}, pattern_size={}, mask_ratio={}".format(
+            num_clusters, pattern_size, mask_ratio
+        ))
     total_ls = {}
     for y_target in target_ls:
         cur_pattern_ls = []
