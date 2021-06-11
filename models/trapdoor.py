@@ -15,11 +15,11 @@ class CoreModel(nn.Module):
         if dataset == "cifar10":
             num_classes = 10
             img_shape = (3, 32, 32)
-            expect_acc = 0.75
+            expect_acc = 0.85
         elif dataset == "gtsrb":
             num_classes = 43
             img_shape = (3, 32, 32)
-            expect_acc = 0.9
+            expect_acc = 0.95
         elif dataset == "MNIST":
             num_classes = 10
             img_shape = (1, 32, 32)
@@ -113,10 +113,8 @@ def craft_trapdoors(target_ls, image_shape, num_clusters, pattern_per_label=1,
                     image_col=image_shape[2],
                     channel_num=image_shape[0],
                     pattern_size=pattern_size)
-
                 # accumulate mask
                 tot_mask += mask
-
                 # accumulate pattern
                 m1 = random.uniform(0, 1)
                 s1 = random.uniform(0, 1)
@@ -125,7 +123,6 @@ def craft_trapdoors(target_ls, image_shape, num_clusters, pattern_per_label=1,
                 cur_pattern = cur_pattern * (mask != 0)
                 cur_pattern = torch.clamp(cur_pattern, 0, 1.0)
                 tot_pattern += cur_pattern
-
             # need to clip again due to accumulation.
             tot_mask = (tot_mask > 0) * mask_ratio
             tot_pattern = torch.clamp(tot_pattern, 0, 1.0)
@@ -177,7 +174,9 @@ class DatasetWrapper:
         for cur_x, cur_y in zip(in_x, in_y):
             inject_ptr = random.uniform(0, 1)
             if inject_ptr < self.inject_ratio:
-                cur_y = random.choice(self.target_ls)
+                this_choice = [i for i in self.target_ls]
+                this_choice.remove(cur_y.item())
+                cur_y = random.choice(this_choice)
                 cur_x = self.injection(cur_x, cur_y)
             batch_X.append(cur_x)
             batch_Y.append(torch.LongTensor([cur_y]))

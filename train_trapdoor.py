@@ -79,7 +79,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     args.results_dir = os.path.join(
-        args.results_dir, 'Trapdoor-{}-'.format(args.dataset) +
+        args.results_dir, 'Trapdoor-{}-{:.2f}-'.format(
+            args.dataset, args.inject_ratio) +
         datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     )
     # log
