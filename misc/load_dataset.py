@@ -6,7 +6,6 @@
 
 
 import os
-import warnings
 import h5py as h5
 import numpy as np
 import random
@@ -143,7 +142,7 @@ class LoadDataset(Dataset):
             self.data = MNIST(
                 root=os.path.join(self.data_path),
                 train=self.train, download=self.download)
-            warnings.warn("This MNIST loader generate 1-channel data.")
+            logging.warn("This MNIST loader generate 1-channel data.")
         elif self.dataset_name == 'imagenet':
             if self.hdf5_path is not None:
                 print('Loading %s into memory...' % self.hdf5_path)
