@@ -15,7 +15,7 @@ class CoreModel(nn.Module):
         if dataset == "cifar10":
             num_classes = 10
             img_shape = (3, 32, 32)
-            expect_acc = 0.85
+            expect_acc = 0.75
         elif dataset == "gtsrb":
             num_classes = 43
             img_shape = (3, 32, 32)
@@ -23,7 +23,7 @@ class CoreModel(nn.Module):
         elif dataset == "MNIST":
             num_classes = 10
             img_shape = (1, 32, 32)
-            expect_acc = 0.98
+            expect_acc = 0.95
         else:
             raise Exception("Not implement")
 

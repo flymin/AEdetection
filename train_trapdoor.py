@@ -69,26 +69,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Trapdoor AE detector")
     parser.add_argument("--dataset", default="cifar10", type=str)
     parser.add_argument("--model", default="", type=str)
+    parser.add_argument("--lr", default=0.001, type=float)
     parser.add_argument("--results_dir", default="./results", type=str)
     parser.add_argument("--data_path", default="./dataset", type=str)
     parser.add_argument('--inject_ratio', type=float,
                         help='injection ratio', default=0.5)
+    parser.add_argument('--mask_ratio', type=float, help='mask ratio',
+                        default=None)
     parser.add_argument('--num_cluster', type=int, help='', default=7)
     parser.add_argument("--batch_size", default=256, type=int)
     parser.add_argument('--seed', type=int, help='', default=0)
 
     args = parser.parse_args()
-    args.results_dir = os.path.join(
-        args.results_dir, 'Trapdoor-{}-{:.2f}-'.format(
-            args.dataset, args.inject_ratio) +
-        datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    )
-    # log
-    if not os.path.exists(args.results_dir):
-        os.makedirs(args.results_dir)
-    utils.make_logger(args.dataset, args.results_dir)
-    logging.info(args)
-
     random.seed(args.seed)
     torch.random.manual_seed(args.seed)
 
@@ -98,7 +90,7 @@ if __name__ == "__main__":
         key = "model"
         cls_norm = [(0.13), (0.31)]
         # trapdoor params
-        mask_ratio = 0.1
+        mask_ratio = 0.4 if args.mask_ratio is None else args.mask_ratio
         pattern_size = 3
         epochs = 200
     elif args.dataset == "cifar10":
@@ -112,7 +104,7 @@ if __name__ == "__main__":
                                     threat_model='Linf')
             cls_norm = [(0., 0., 0.), (1., 1., 1.)]
         # trapdoor params
-        mask_ratio = 0.03
+        mask_ratio = 0.11 if args.mask_ratio is None else args.mask_ratio
         pattern_size = 3
         epochs = 200
     elif args.dataset == "gtsrb":
@@ -121,11 +113,26 @@ if __name__ == "__main__":
         key = "model"
         cls_norm = [(0.3337, 0.3064, 0.3171), (0.2672, 0.2564, 0.2629)]
         # trapdoor params
-        mask_ratio = 0.03
+        mask_ratio = 0.15 if args.mask_ratio is None else args.mask_ratio
         pattern_size = 3
         epochs = 200
     else:
         raise NotImplementedError()
+
+    # set results dir
+    dir_name = 'Trapdoor-{}-{:.2f}-{:.2f}-'.format(
+        args.dataset, args.inject_ratio, mask_ratio)
+    args.results_dir = os.path.join(
+        args.results_dir, dir_name +
+        datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    )
+    # log
+    if not os.path.exists(args.results_dir):
+        os.makedirs(args.results_dir)
+    utils.make_logger(args.dataset, args.results_dir)
+    logging.info(args)
+
+    # define model
     model = CoreModel(args.dataset, classifier, cls_norm)
     logging.info("{}".format(model))
     # load clean trained
@@ -159,7 +166,7 @@ if __name__ == "__main__":
         return x, y
 
     # train utils
-    optim = torch.optim.Adam(model.parameters())
+    optim = torch.optim.Adam(model.parameters(), lr=args.lr)
     scheduler = ReduceLROnPlateau(
         optim, 'min', factor=np.sqrt(0.1),
         patience=5, min_lr=0.5e-6)
@@ -167,7 +174,7 @@ if __name__ == "__main__":
 
     # train with trapdoor injection.
     # when training, keep the model with expected normal acc and best trap acc
-    best_acc = 0
+    best_bd_acc, best_nm_acc = 0, 0
     for epoch in range(epochs):
         train(model, train_loader, optim, epoch, data_wrapper)
         normal_acc, normal_loss = test(model, test_loader, clean_wrapper)
@@ -182,9 +189,15 @@ if __name__ == "__main__":
         }
         scheduler.step(normal_loss)
         if normal_acc > model.expect_acc:
-            best_acc = utils.save_best(
-                best_acc, args.dataset, bd_acc, params, epoch, "Trapdoor",
+            best_bd_acc = utils.save_best(
+                best_bd_acc, args.dataset, bd_acc, params, epoch, "TrapdoorB",
                 args.results_dir)
+            if best_nm_acc < normal_acc:
+                best_nm_acc = normal_acc
+        else:
+            best_nm_acc = utils.save_best(
+                best_nm_acc, args.dataset, normal_acc, params, epoch,
+                "TrapdoorN", args.results_dir)
         torch.save(
             params, os.path.join(
                 args.results_dir, "{}_{}.pth".format("Trapdoor", args.dataset)))

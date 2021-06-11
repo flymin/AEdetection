@@ -81,10 +81,9 @@ def save_best(best_prec, prefix, acc, params, epoch, arch, results_dir,
         for file in glob.glob(
                 results_dir + '/{}_{}E*'.format(arch, prefix)):
             os.remove(file)
-        torch.save(
-            params, results_dir +
-            '/{}_{}E{}V{:.6f}.pth'.format(arch, prefix, epoch, acc))
-        logging.info(">>>>>> Best saved <<<<<<")
+        save_name = '/{}_{}E{}V{:.6f}.pth'.format(arch, prefix, epoch, acc)
+        torch.save(params, results_dir + save_name)
+        logging.info(">>>>>> Best saved to {} <<<<<<".format(save_name))
     else:
         logging.info(">>>>>> Best not change from {} <<<<<<".format(best_prec))
     return best_prec
