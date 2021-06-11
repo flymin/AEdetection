@@ -186,5 +186,5 @@ if __name__ == "__main__":
                 args.results_dir)
         torch.save(
             params, os.path.join(
-                args.results_dir, "{}_{}".format("Trapdoor", args.dataset)))
+                args.results_dir, "{}_{}.pth".format("Trapdoor", args.dataset)))
         del params

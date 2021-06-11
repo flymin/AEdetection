@@ -15,7 +15,7 @@ class CoreModel(nn.Module):
         if dataset == "cifar10":
             num_classes = 10
             img_shape = (3, 32, 32)
-            expect_acc = 0.8  # change this from 0.75 to 0.8
+            expect_acc = 0.75
         elif dataset == "gtsrb":
             num_classes = 43
             img_shape = (3, 32, 32)
