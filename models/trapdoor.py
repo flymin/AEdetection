@@ -1,9 +1,12 @@
+from typing import Tuple
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.transforms import Normalize
 import random
 import logging
+from misc.utils import judge_thresh
 
 
 class CoreModel(nn.Module):
@@ -38,6 +41,8 @@ class CoreModel(nn.Module):
         )
 
     def inference_logits(self, data):
+        if data.min() < 0. or data.max() > 1.:
+            logging.warn("[CoreModel] input image is out of range.")
         norm_x = self.cls_norm(data)
         return self.classifier(norm_x)
 
@@ -181,3 +186,135 @@ class DatasetWrapper:
             batch_X.append(cur_x)
             batch_Y.append(torch.LongTensor([cur_y]))
         return torch.stack(batch_X, dim=0), torch.cat(batch_Y, dim=0)
+
+
+class TrapDetector(nn.Module):
+    def __init__(self, coreModel: CoreModel, target_ls, pattern_dict):
+        super(TrapDetector, self).__init__()
+        self.coreModel = coreModel
+        self.dataWrapper = DatasetWrapper(target_ls, pattern_dict, 1)
+        self.sig = {}
+        self._thresh = None
+
+    def __str__(self) -> str:
+        return "[TrapDetector] with coreModel={}".format(
+            self.coreModel)
+
+    @property
+    def thresh(self):
+        return self._thresh
+
+    @thresh.setter
+    def thresh(self, value):
+        assert isinstance(value, dict)
+        assert len(value) == len(self.sig)
+        logging.info("[TrapDetector] Set thrs={} for detector".format(value))
+        self._thresh = value
+
+    def build_sig(self, test_loader):
+        """Assign each label to test data and calculate the mean as signiture.
+
+        Args:
+            test_loader (torch.utils.data.DataLoader): no need for y
+        """
+        x_neuron_dict = {y: torch.Tensor() for y in self.dataWrapper.target_ls}
+        with torch.no_grad():
+            for this_batch, this_y in test_loader:
+                for target_y in self.dataWrapper.target_ls:
+                    # construct data with backdoor
+                    batch_X = []
+                    for cur_x, cur_y in zip(this_batch, this_y):
+                        if cur_y != target_y: # only keep y != y_t
+                            cur_x = self.dataWrapper.injection(cur_x, target_y)
+                            batch_X.append(cur_x)
+                    batch_X = torch.stack(batch_X, dim=0).cuda()
+                    # feed to model and git logits
+                    x_neuron = self.coreModel.inference_logits(batch_X)
+                    x_neuron_dict[target_y] = torch.cat(
+                        [x_neuron_dict[target_y], x_neuron.cpu()], dim=0
+                    )
+        # cal expectation to get sig
+        self.sig = {key: value.mean(dim=0)
+                    for key, value in x_neuron_dict.items()}
+
+    def judge_distance(self, dist, y_pred):
+        if self._thresh is None:
+            raise RuntimeError(
+                "[TrapDetector] You need to assign a threshold to judge")
+        thresh = [self._thresh[y] for y in y_pred]
+        thresh = torch.Tensor(thresh)
+        return judge_thresh(dist, thresh)
+
+    def _cal_distance(self, x_neuron, target_y):
+        dist = []
+        for xi, yi in zip(x_neuron, target_y):
+            dist.append(1 - torch.cosine_similarity(xi, self.sig[yi], dim=0))
+        return torch.stack(dist)
+
+    def _get_distance(self, x) -> Tuple[torch.Tensor, list]:
+        with torch.no_grad():
+            y_pred = self.coreModel(x).argmax(dim=-1).tolist()
+            x_neuron = self.coreModel.inference_logits(x).cpu()
+            dist = self._cal_distance(x_neuron, y_pred)
+        return dist, y_pred
+
+    def _classify_helper(self, img_data, batch_size):
+        pred_y = []
+        for idx in range(math.ceil(len(img_data) / batch_size)):
+            start = idx * batch_size
+            batch_data = img_data[start:start + batch_size].cuda()
+            with torch.no_grad():
+                pred_y_batch = self.coreModel(batch_data).argmax(dim=1).cpu()
+            pred_y.append(pred_y_batch)
+        pred_y = torch.cat(pred_y, dim=0)
+        return pred_y
+
+    def classify_normal(self, img_data: torch.Tensor, batch_size: int):
+        """Return prediction results of reformed data samples.
+
+        Args:
+            test_data ([type]): [description]
+            batch_size ([type]): [description]
+
+        Return:
+            pred_y: prediction on original data
+        """
+        return self._classify_helper(img_data, batch_size)
+
+    def detect(self, test_img: torch.Tensor, batch_size: int):
+        if len(self.sig) == 0:
+            raise RuntimeError(
+                "[TrapDetector] You need to cal build_sig before detect")
+        all_pass, all_dist = [], torch.Tensor()
+        for idx in range(math.ceil(len(test_img) / batch_size)):
+            start = idx * batch_size
+            batch_data = test_img[start:start + batch_size].cuda()
+            # perform detection
+            dist, y_pred = self._get_distance(batch_data)
+            this_pass = self.judge_distance(dist, y_pred)
+            # collect results
+            all_pass.append(this_pass)
+            all_dist = torch.cat([all_dist, dist], dim=0)
+        all_pass = torch.cat(all_pass, dim=0).long()
+        all_pass
+        return all_pass, all_dist
+
+    def get_thrs(self, valid_loader, drop_rate=0.05):
+        if len(self.sig) == 0:
+            logging.warn(
+                "[TrapDetector] You need to call build_sig before detect, " +
+                "I will do this now.")
+            self.build_sig(valid_loader)
+        all_dist, thresh = {i:[] for i in self.dataWrapper.target_ls}, {}
+        for img, _ in valid_loader:
+            img = img.cuda()
+            dist, y_pred = self._get_distance(img)
+            for y, dis in zip(y_pred, dist):
+                all_dist[y].append(dis.cpu())
+        for key in all_dist:
+            this_dist = torch.stack(all_dist[key], dim=0)
+            this_dist, _ = this_dist.sort()
+            thrs = this_dist[int(len(this_dist) * drop_rate)].item()
+            thresh[key] = thrs
+        logging.info("[TrapDetector] get thrs={}".format(thresh))
+        return thresh

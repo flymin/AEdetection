@@ -87,3 +87,11 @@ def save_best(best_prec, prefix, acc, params, epoch, arch, results_dir,
     else:
         logging.info(">>>>>> Best not change from {} <<<<<<".format(best_prec))
     return best_prec
+
+
+def judge_thresh(out, thresh, min_distance=False):
+    # True for pass, False for reject
+    if min_distance:
+        return (out < thresh).long()
+    else:
+        return (out > thresh).long()
