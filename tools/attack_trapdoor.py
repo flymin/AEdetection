@@ -28,10 +28,20 @@ def attack_helper(data_loader, fmodel, adversary, params, prefix,
         params = [None]
     adv_cor_batch = [0] * (len(params) + 1)
     total_number = 0
-    all_sample = {"x_ori": [], "y_ori": [],
-                  "x_adv": {eps: [] for eps in params}}
-    save_name = ""
+    pre = glob.glob(os.path.join(save_dir, "{}_*.pt".format(save_prefix)))
+    if len(pre) > 0:
+        save_name = pre[0]
+        all_sample = torch.load(save_name)
+        logging.info("Load previous from {}".format(save_name))
+    else:
+        all_sample = {"x_ori": [], "y_ori": [],
+                    "x_adv": {eps: [] for eps in params}}
+        save_name = ""
     for idx, (img, classId) in enumerate(data_loader):
+        if idx < len(all_sample["x_ori"]):
+            total_number += img.shape[0]
+            logging.info("Skip generation for {}".format(total_number))
+            continue
         all_sample["x_ori"].append(img)
         all_sample["y_ori"].append(classId)
         img = img.cuda()
