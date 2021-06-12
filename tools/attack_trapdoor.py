@@ -109,7 +109,7 @@ if __name__ == "__main__":
             key = None
             cls_norm = [(0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)]
             weight = glob.glob(
-                "results/Trapdoor-cifar10-*/TrapdoorB_cifar10E*.pth")
+                "results/Trapdoor-cifar10-*/TrapdoorN_cifar10E*.pth")
         else:
             classifier = load_model(model_name=args.model, dataset=args.dataset,
                                     threat_model='Linf')

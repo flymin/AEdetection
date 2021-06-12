@@ -26,7 +26,7 @@ class CoreModel(nn.Module):
         elif dataset == "MNIST":
             num_classes = 10
             img_shape = (1, 32, 32)
-            expect_acc = 0.95
+            expect_acc = 0.98
         else:
             raise Exception("Not implement")
 
@@ -40,15 +40,15 @@ class CoreModel(nn.Module):
             self.dataset, self.per_label_ratio, self.expect_acc
         )
 
-    def inference_logits(self, data):
+    def inference_prob(self, data):
+        logits = self.forward(data)
+        return F.softmax(logits, dim=-1)
+
+    def forward(self, data):
         if data.min() < 0. or data.max() > 1.:
             logging.warn("[CoreModel] input image is out of range.")
         norm_x = self.cls_norm(data)
         return self.classifier(norm_x)
-
-    def forward(self, data):
-        logits = self.inference_logits(data)
-        return F.softmax(logits, dim=-1)
 
     def load_classifier(self, path, key="net"):
         weight = torch.load(path)
@@ -224,12 +224,12 @@ class TrapDetector(nn.Module):
                     # construct data with backdoor
                     batch_X = []
                     for cur_x, cur_y in zip(this_batch, this_y):
-                        if cur_y != target_y: # only keep y != y_t
+                        if cur_y != target_y:  # only keep y != y_t
                             cur_x = self.dataWrapper.injection(cur_x, target_y)
                             batch_X.append(cur_x)
                     batch_X = torch.stack(batch_X, dim=0).cuda()
                     # feed to model and git logits
-                    x_neuron = self.coreModel.inference_logits(batch_X)
+                    x_neuron = self.coreModel(batch_X)
                     x_neuron_dict[target_y] = torch.cat(
                         [x_neuron_dict[target_y], x_neuron.cpu()], dim=0
                     )
@@ -254,7 +254,7 @@ class TrapDetector(nn.Module):
     def _get_distance(self, x) -> Tuple[torch.Tensor, list]:
         with torch.no_grad():
             y_pred = self.coreModel(x).argmax(dim=-1).tolist()
-            x_neuron = self.coreModel.inference_logits(x).cpu()
+            x_neuron = self.coreModel(x).cpu()
             dist = self._cal_distance(x_neuron, y_pred)
         return dist, y_pred
 
@@ -305,7 +305,7 @@ class TrapDetector(nn.Module):
                 "[TrapDetector] You need to call build_sig before detect, " +
                 "I will do this now.")
             self.build_sig(valid_loader)
-        all_dist, thresh = {i:[] for i in self.dataWrapper.target_ls}, {}
+        all_dist, thresh = {i: [] for i in self.dataWrapper.target_ls}, {}
         for img, _ in valid_loader:
             img = img.cuda()
             dist, y_pred = self._get_distance(img)

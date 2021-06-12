@@ -90,7 +90,7 @@ if __name__ == "__main__":
         key = "model"
         cls_norm = [(0.13), (0.31)]
         # trapdoor params
-        mask_ratio = 0.4 if args.mask_ratio is None else args.mask_ratio
+        mask_ratio = 0.1 if args.mask_ratio is None else args.mask_ratio
         pattern_size = 3
         epochs = 200
     elif args.dataset == "cifar10":
@@ -104,7 +104,7 @@ if __name__ == "__main__":
                                     threat_model='Linf')
             cls_norm = [(0., 0., 0.), (1., 1., 1.)]
         # trapdoor params
-        mask_ratio = 0.11 if args.mask_ratio is None else args.mask_ratio
+        mask_ratio = 0.1 if args.mask_ratio is None else args.mask_ratio
         pattern_size = 3
         epochs = 200
     elif args.dataset == "gtsrb":
@@ -113,7 +113,7 @@ if __name__ == "__main__":
         key = "model"
         cls_norm = [(0.3337, 0.3064, 0.3171), (0.2672, 0.2564, 0.2629)]
         # trapdoor params
-        mask_ratio = 0.15 if args.mask_ratio is None else args.mask_ratio
+        mask_ratio = 0.1 if args.mask_ratio is None else args.mask_ratio
         pattern_size = 3
         epochs = 200
     else:
@@ -194,10 +194,9 @@ if __name__ == "__main__":
                 args.results_dir)
             if best_nm_acc < normal_acc:
                 best_nm_acc = normal_acc
-        else:
-            best_nm_acc = utils.save_best(
-                best_nm_acc, args.dataset, normal_acc, params, epoch,
-                "TrapdoorN", args.results_dir)
+        best_nm_acc = utils.save_best(
+            best_nm_acc, args.dataset, normal_acc, params, epoch,
+            "TrapdoorN", args.results_dir)
         torch.save(
             params, os.path.join(
                 args.results_dir, "{}_{}.pth".format("Trapdoor", args.dataset)))
