@@ -22,9 +22,11 @@ class Mnist2LayerNet(nn.Module):
         return x
 
     def forward_feature(self, x):
-        x = x.mean(dim=-3, keepdim=True)
-        x = F.interpolate(x, size=(28, 28), mode="bilinear",
-                          align_corners=True)
+        if x.shape[-3] > 1:
+            x = x.mean(dim=-3, keepdim=True)
+        if x.shape[-1] > 28:
+            x = F.interpolate(x, size=(28, 28), mode="bilinear",
+                              align_corners=True)
         x = F.relu(self.conv1(x))
         x = F.max_pool2d(x, 2, 2)
         x = F.relu(self.conv2(x))

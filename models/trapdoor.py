@@ -25,7 +25,7 @@ class CoreModel(nn.Module):
             expect_acc = 0.95
         elif dataset == "MNIST":
             num_classes = 10
-            img_shape = (1, 32, 32)
+            img_shape = (1, 28, 28)
             expect_acc = 0.98
         else:
             raise Exception("Not implement")

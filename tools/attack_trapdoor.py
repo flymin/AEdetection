@@ -99,9 +99,12 @@ if __name__ == "__main__":
         classifier = Mnist2LayerNet()
         cls_path = "pretrain/MNIST_Net.pth"
         key = "model"
-        cls_norm = [[0.13], [0.31]]
+        cls_norm = [[0.], [1.]]
+        args.img_size = (28, 28)
         # trapdoor params
-        weight = glob.glob("results/Trapdoor-MNIST-*/TrapdoorB_MNISTE*.pth")
+        weight = glob.glob(
+            "results/Trapdoor-mnist28/Trapdoor-MNIST-0.50-0.10-*/" +
+            "TrapdoorB_MNISTE*.pth")
     elif args.dataset == "cifar10":
         if args.model == "":
             classifier = densenet169()
@@ -209,4 +212,4 @@ if __name__ == "__main__":
         raise NotImplementedError()
 
     attack_helper(test_loader, fmodel, adversary, epsilon_list, prefix,
-                  args.save_dir, "{}_{}".format(args.dataset, name))
+                  args.save_dir, "{}_{}_28".format(args.dataset, name))

@@ -88,7 +88,7 @@ if __name__ == "__main__":
         classifier = Mnist2LayerNet()
         cls_path = "pretrain/MNIST_Net.pth"
         key = "model"
-        cls_norm = [(0.13), (0.31)]
+        cls_norm = [(0.), (1.)]
         # trapdoor params
         mask_ratio = 0.1 if args.mask_ratio is None else args.mask_ratio
         pattern_size = 3
@@ -146,10 +146,10 @@ if __name__ == "__main__":
     norm = False
     train_data = LoadDataset(
         args.dataset, args.data_path, train=True, download=False,
-        resize_size=(32, 32), hdf5_path=None, random_flip=False, norm=norm)
+        resize_size=(28, 28), hdf5_path=None, random_flip=False, norm=norm)
     test_data = LoadDataset(
         args.dataset, args.data_path, train=False, download=False,
-        resize_size=(32, 32), hdf5_path=None, random_flip=False, norm=norm)
+        resize_size=(28, 28), hdf5_path=None, random_flip=False, norm=norm)
 
     train_loader = DataLoader(
         train_data, batch_size=args.batch_size, shuffle=True, num_workers=4,
