@@ -140,7 +140,7 @@ if __name__ == "__main__":
 
     # log
     args.results_dir = os.path.join(
-        args.results_dir, 'Trapdoor-{}-'.format(args.dataset) +
+        args.results_dir, 'Trapdoor-1-{}-'.format(args.dataset) +
         datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     )
     if args.model != "":

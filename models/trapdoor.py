@@ -44,6 +44,12 @@ class CoreModel(nn.Module):
         logits = self.forward(data)
         return F.softmax(logits, dim=-1)
 
+    def get_neuron(self, data):
+        if data.min() < 0. or data.max() > 1.:
+            logging.warn("[CoreModel] input image is out of range.")
+        norm_x = self.cls_norm(data)
+        return self.classifier.forward_feature(norm_x)
+
     def forward(self, data):
         if data.min() < 0. or data.max() > 1.:
             logging.warn("[CoreModel] input image is out of range.")
@@ -236,7 +242,7 @@ class TrapDetector(nn.Module):
                             batch_X.append(cur_x)
                     batch_X = torch.stack(batch_X, dim=0).cuda()
                     # feed to model and git logits
-                    x_neuron = self.coreModel(batch_X)
+                    x_neuron = self.coreModel.get_neuron(batch_X)
                     x_neuron_dict[target_y] = torch.cat(
                         [x_neuron_dict[target_y], x_neuron.cpu()], dim=0
                     )
@@ -264,7 +270,7 @@ class TrapDetector(nn.Module):
                 y_pred = self.coreModel(x).argmax(dim=-1).tolist()
             else:
                 y_pred = target_y
-            x_neuron = self.coreModel(x).cpu()
+            x_neuron = self.coreModel.get_neuron(x).cpu()
             dist = self._cal_distance(x_neuron, y_pred)
         return dist, y_pred
 

@@ -15,6 +15,13 @@ class Mnist2LayerNet(nn.Module):
         self.logit = True
 
     def forward(self, x):
+        x = self.forward_feature(x)
+        x = self.fc2(x)
+        if not self.logit:
+            x = F.log_softmax(x, dim=1)
+        return x
+
+    def forward_feature(self, x):
         x = x.mean(dim=-3, keepdim=True)
         x = F.interpolate(x, size=(28, 28), mode="bilinear",
                           align_corners=True)
@@ -24,9 +31,6 @@ class Mnist2LayerNet(nn.Module):
         x = F.max_pool2d(x, 2, 2)
         x = x.view(-1, 4 * 4 * 50)
         x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        if not self.logit:
-            x = F.log_softmax(x, dim=1)
         return x
 
 
