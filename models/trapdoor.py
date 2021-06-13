@@ -195,10 +195,17 @@ class TrapDetector(nn.Module):
         self.dataWrapper = DatasetWrapper(target_ls, pattern_dict, 1)
         self.sig = {}
         self._thresh = None
+        self._all_label = False
 
     def __str__(self) -> str:
         return "[TrapDetector] with coreModel={}".format(
             self.coreModel)
+
+    def enable_all_label(self, all_label=True):
+        self._all_label = True
+
+    def disable_all_label(self):
+        self.enable_all_label(False)
 
     @property
     def thresh(self):
@@ -251,9 +258,12 @@ class TrapDetector(nn.Module):
             dist.append(1 - torch.cosine_similarity(xi, self.sig[yi], dim=0))
         return torch.stack(dist)
 
-    def _get_distance(self, x) -> Tuple[torch.Tensor, list]:
+    def _get_distance(self, x, target_y=None) -> Tuple[torch.Tensor, list]:
         with torch.no_grad():
-            y_pred = self.coreModel(x).argmax(dim=-1).tolist()
+            if target_y is None:
+                y_pred = self.coreModel(x).argmax(dim=-1).tolist()
+            else:
+                y_pred = target_y
             x_neuron = self.coreModel(x).cpu()
             dist = self._cal_distance(x_neuron, y_pred)
         return dist, y_pred
@@ -290,8 +300,16 @@ class TrapDetector(nn.Module):
             start = idx * batch_size
             batch_data = test_img[start:start + batch_size].cuda()
             # perform detection
-            dist, y_pred = self._get_distance(batch_data)
-            this_pass = self.judge_distance(dist, y_pred)
+            if self._all_label:
+                this_pass = torch.ones(len(batch_data), dtype=torch.long)
+                for label in self.dataWrapper.target_ls:
+                    y_target = [label] * len(batch_data)
+                    dist, y_pred = self._get_distance(batch_data, y_target)
+                    this_pass_label = self.judge_distance(dist, y_pred)
+                    this_pass = torch.logical_and(this_pass, this_pass_label)
+            else:
+                dist, y_pred = self._get_distance(batch_data)
+                this_pass = self.judge_distance(dist, y_pred)
             # collect results
             all_pass.append(this_pass)
             all_dist = torch.cat([all_dist, dist], dim=0)

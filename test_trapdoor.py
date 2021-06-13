@@ -100,6 +100,8 @@ if __name__ == "__main__":
     parser.add_argument("--data_path", default="./dataset", type=str)
     parser.add_argument("--img_size", default=(32, 32), type=tuple)
     parser.add_argument("--batch_size", default=256, type=int)
+    parser.add_argument('--use_all_label', action='store_true',
+                        help='use all label to filter')
 
     args = parser.parse_args()
     random.seed(1)
@@ -161,6 +163,8 @@ if __name__ == "__main__":
     detector = TrapDetector(coreModel, target_ls, pattern_dict)
     detector = detector.cuda()
     detector.eval()
+    if args.use_all_label:
+        detector.enable_all_label()
     logging.info(detector)
 
     # test_data
