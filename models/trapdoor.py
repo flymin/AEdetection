@@ -320,7 +320,6 @@ class TrapDetector(nn.Module):
             all_pass.append(this_pass)
             all_dist = torch.cat([all_dist, dist], dim=0)
         all_pass = torch.cat(all_pass, dim=0).long()
-        all_pass
         return all_pass, all_dist
 
     def get_thrs(self, valid_loader, drop_rate=0.05):
