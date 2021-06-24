@@ -13,6 +13,8 @@ import torch
 import misc.utils as utils
 from misc.load_dataset import LoadDataset
 from torch.utils.data import DataLoader
+from torchvision.transforms import Normalize
+from models.cwlinfattack import CarliniWagnerLinfAttack
 from models.trapdoor import CoreModel
 from models.resnet import *
 from models.mnist2layer import *
@@ -205,6 +207,25 @@ if __name__ == "__main__":
             "confidence": 0.
         }
         adversary = fb.attacks.L2CarliniWagnerAttack(**params)
+        name = "CW"
+        prefix = "_cw_"
+        epsilon_list = None
+    elif args.attack == "CWinf":
+        params = {
+            "predict": coreModel.classifier,
+            "num_classes": coreModel.num_classes,
+            "max_iterations": 1000,
+            "binary_search_steps": 9,
+            "learning_rate": 1e-2,
+            "initial_const": 1e-3,
+            "abort_early": True,
+            "normalize_fn": Normalize(*cls_norm)
+        }
+        def CWinfAttack(fmodel, img, classId, epsilons):
+            adversary = CarliniWagnerLinfAttack(confidence=0., **params)
+            x_adv = adversary.perturb(img, classId)
+            return None, x_adv, None
+        adversary = CWinfAttack
         name = "CW"
         prefix = "_cw_"
         epsilon_list = None
