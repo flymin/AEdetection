@@ -37,7 +37,7 @@ def attack_helper(data_loader, fmodel, adversary, params, prefix,
         logging.info("Load previous from {}".format(save_name))
     else:
         all_sample = {"x_ori": [], "y_ori": [],
-                    "x_adv": {eps: [] for eps in params}}
+                      "x_adv": {eps: [] for eps in params}}
         save_name = ""
     for idx, (img, classId) in enumerate(data_loader):
         if idx < len(all_sample["x_ori"]):
@@ -221,6 +221,7 @@ if __name__ == "__main__":
             "abort_early": True,
             "normalize_fn": Normalize(*cls_norm)
         }
+
         def CWinfAttack(fmodel, img, classId, epsilons):
             adversary = CarliniWagnerLinfAttack(confidence=0., **params)
             x_adv = adversary.perturb(img, classId)
@@ -233,4 +234,5 @@ if __name__ == "__main__":
         raise NotImplementedError()
 
     attack_helper(test_loader, fmodel, adversary, epsilon_list, prefix,
-                  args.save_dir, "{}_{}_28".format(args.dataset, name))
+                  args.save_dir, "{}_{}_{}".format(
+                      args.dataset, name, args.img_size[0]))
