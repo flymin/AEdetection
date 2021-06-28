@@ -227,8 +227,8 @@ if __name__ == "__main__":
             x_adv = adversary.perturb(img, classId)
             return None, x_adv, None
         adversary = CWinfAttack
-        name = "CW"
-        prefix = "_cw_"
+        name = "CWinf"
+        prefix = "cwif"
         epsilon_list = None
     else:
         raise NotImplementedError()
