@@ -230,6 +230,24 @@ if __name__ == "__main__":
         name = "CWinf"
         prefix = "cwif"
         epsilon_list = None
+    elif args.attack == "EADA":
+        name = "EADA"
+        prefix = "Eada"
+        params = {"decision_rule": "EN"}
+        params["steps"] = 1000
+        params["binary_search_steps"] = 9
+        params["confidence"] = 0.0
+        adversary = fb.attacks.EADAttack(**params)
+        epsilon_list = None
+    elif args.attack == "EADAL1":
+        name = "EADAL1"
+        prefix = "EaL1"
+        params = {"decision_rule": "L1"}
+        params["steps"] = 1000
+        params["binary_search_steps"] = 9
+        params["confidence"] = 0.0
+        adversary = fb.attacks.EADAttack(**params)
+        epsilon_list = None
     else:
         raise NotImplementedError()
 
