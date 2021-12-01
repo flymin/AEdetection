@@ -105,7 +105,7 @@ class FeatureSqueeze(nn.Module):
             img = self.denorm(img.cuda())
             all_mark.append(self._get_distance(img).cpu())
         all_mark = torch.cat(all_mark, dim=0)
-        all_mark, _ = all_mark.sort(reversed=True)
+        all_mark, _ = all_mark.sort(descending=True)
         thrs = all_mark[int(len(all_mark) * drop_rate)].item()
         logging.info("Set thrs={:.6f} for detector".format(thrs))
         return thrs
