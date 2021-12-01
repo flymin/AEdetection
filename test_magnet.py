@@ -97,10 +97,11 @@ if __name__ == "__main__":
     parser.add_argument("--ae_path", type=str)
     parser.add_argument("--model", default="", type=str)
     parser.add_argument("--dataset", default="cifar10", type=str)
-    parser.add_argument("--results_dir", default="./results/ae_test_0.03", type=str)
+    parser.add_argument("--results_dir", default="./results/ae_test", type=str)
     parser.add_argument("--data_path", default="./dataset", type=str)
     parser.add_argument("--img_size", default=(32, 32), type=tuple)
     parser.add_argument("--batch_size", default=256, type=int)
+    parser.add_argument("--drop_rate", default=0.05, type=float)
 
     args = parser.parse_args()
     args.results_dir = os.path.join(
@@ -118,6 +119,7 @@ if __name__ == "__main__":
         os.makedirs(args.results_dir)
     utils.make_logger(run_name, args.results_dir)
     logging.info(args)
+    logging.info(f">>>> This is running for drop_rate={args.drop_rate}. <<<<")
 
     # define model according to dataset
     denorm = [(0., 0., 0.), (1., 1., 1.)]
@@ -235,7 +237,7 @@ if __name__ == "__main__":
         pin_memory=True)
 
     # start detect
-    thrs = detector.get_thrs(test_loader, drop_rate=0.03)
+    thrs = detector.get_thrs(test_loader, drop_rate=args.drop_rate)
     total, fp = 0, 0
     fp_tn, total_pass_cor, total_rej_wrong = 0, 0, 0
     for img, classId in test_loader:
