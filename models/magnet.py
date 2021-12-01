@@ -224,8 +224,8 @@ class Detector(nn.Module):
                 img = img.cuda()
                 all_mark.append(detector(img).cpu())
             all_mark = torch.cat(all_mark, dim=0)
-            all_mark, _ = all_mark.sort()
-            thrs[name] = all_mark[-int(len(all_mark) * drop_rate)].item()
+            all_mark, _ = all_mark.sort(reversed=True)
+            thrs[name] = all_mark[int(len(all_mark) * drop_rate)].item()
             logging.info("Set thrs={:.6f} for detector {}".format(
                 thrs[name], name))
         return thrs
